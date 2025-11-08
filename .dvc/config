@@ -1,0 +1,8 @@
+[core]
+    remote = gcs
+    autostage = true
+
+[remote "gcs"]
+    url = gcs://mlops-wk-1-sanjay007/dvc-store
+    gcs_project = linear-stock-473507-v3
+    credentialpath = .secrets/gcp_credentials.json
