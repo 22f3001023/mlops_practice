@@ -1,0 +1,24 @@
+# Virtual Environment
+venv/
+*.venv/
+
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Secrets
+.secrets/
+*.json
+*.key
+
+# Local data
+data/raw/
+data/processed/
+*.parquet
+*.csv
+
+# OS files
+.DS_Store
+Thumbs.db
