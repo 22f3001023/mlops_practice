@@ -1,0 +1,25 @@
+venv/
+.env
+.secrets
+# Python
+venv/
+__pycache__/
+*.pyc
+
+# DVC
+.dvc/cache
+.dvc/tmp
+.dvc/lock
+
+# Secrets
+.secrets/
+
+# Data (tracked by DVC)
+data/raw/
+data/v1/
+data/v2/
+processed_data/
+
+# Feast
+feature_repo/data/
+*.db
