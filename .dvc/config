@@ -1,7 +1,7 @@
-# .dvc/config content
 [core]
-    # This URL is relative to the config file location
     remote = gcs
 
 [remote "gcs"]
     url = gcs://mlopsoppe
+    gcs_project = linear-stock-473507-v3
+    credentialpath = .secrets/gcp_credentials.json    
