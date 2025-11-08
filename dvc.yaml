@@ -1,0 +1,8 @@
+stages:
+  process_data:
+    cmd: python scripts/process_data.py
+    deps:
+      - data/raw/iris.csv
+      - scripts/process_data.py
+    outs:
+      - processed_data/stock_data.parquet
