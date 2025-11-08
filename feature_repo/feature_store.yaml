@@ -1,0 +1,5 @@
+project: mlops_stock_predictor
+registry: data/registry.db  # Local SQLite file for Feast's state
+provider: local
+offline_store:
+    type: file  # Use the local filesystem as the offline store

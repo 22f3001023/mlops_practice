@@ -1,0 +1,26 @@
+
+L
+,
+__dummy"
+__dummy_idJmlops_stock_predictor
+²¦¾È¨±³•²¦¾È¨±³•
+b
+B
+stock_idStock ticker symbol"stock_idJmlops_stock_predictor
+²¦¾È€Ê½•²¦¾È€Ê½•1"$42470054-1d42-4a28-9542-dd2770994bde*Ü¨¾ÈøÃÉ=2ú
+È
+stock_featuresmlops_stock_predictorstock_id"
+rolling_avg_10"
+volume_sum_10"
+
+target*
+projectstock_predictor2€õ$:¯	timestampZ&$../data/processed/stock_data.parquetŠ1feast.infra.offline_stores.file_source.FileSource¢$../data/processed/stock_data.parquet’¥¨¾ÈØ¦šş"¥¨¾ÈØ¦šş@b
+stock_id-
+²¦¾È°ŸÆ•Ü¨¾Èø¡=
+»™§Ãåä»ÿRš
+—
+,feast.infra.online_stores.sqlite.SqliteTable"g
+?/home/sanjaybdatascientist/mockoppe/feature_repo/data/online.db$mlops_stock_predictor_stock_featuresbÇ	timestampZ&$../data/processed/stock_data.parquetŠ1feast.infra.offline_stores.file_source.FileSource¢$../data/processed/stock_data.parquetªmlops_stock_predictor’²¦¾È¨ëøÀ"²¦¾È À¡•Š7
+
+mlops_stock_predictor
+²¦¾ÈĞ©ÏÁ²¦¾ÈĞ©ÏÁ
