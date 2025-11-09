@@ -2,6 +2,7 @@ import pandas as pd
 from feast import FeatureStore
 from datetime import datetime
 
+
 def materialize_dynamic():
     """
     Materializes features for the entire time range
@@ -12,7 +13,7 @@ def materialize_dynamic():
     
     # 1. Get the source path from the feature view
     view = store.get_feature_view("stock_features")
-    source_path = view.source.path
+    source_path = view.batch_source.path
     
     print(f"Reading timestamps from source: {source_path}")
     
@@ -30,15 +31,20 @@ def materialize_dynamic():
     end_time = end_time + pd.Timedelta(seconds=1)
 
     print(f"Materializing data from: {start_time} to: {end_time}")
+    print(f"Total time range: {end_time - start_time}")
 
     # 3. Run materialization
-    store.materialize(
-        feature_views=["stock_features"],
-        start_date=start_time,
-        end_date=end_time,
-    )
-    
-    print("Materialization complete.")
+    try:
+        store.materialize(
+            feature_views=["stock_features"],
+            start_date=start_time,
+            end_date=end_time,
+        )
+        print("Materialization complete.")
+    except Exception as e:
+        print(f"Materialization failed: {e}")
+        raise
+
 
 if __name__ == "__main__":
     materialize_dynamic()

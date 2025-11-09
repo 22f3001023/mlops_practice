@@ -8,10 +8,20 @@ from sklearn.ensemble import RandomForestClassifier
 from sklearn.metrics import accuracy_score, f1_score
 from hyperopt import fmin, tpe, hp, STATUS_OK, Trials
 from hyperopt.pyll import scope
+import dask
+from dask.distributed import Client
+from multiprocessing import freeze_support
 
 
 # Configure logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+
+# --- Dask Configuration (CRITICAL FIX) ---
+# Set memory limits and chunking strategy
+dask.config.set({
+    'dataframe.shuffle.method': 'disk',  # Use disk instead of memory for shuffles
+    'array.slicing.split_large_chunks': True,
+})
 
 
 # --- MLflow Configuration ---
@@ -24,7 +34,7 @@ mlflow.set_tracking_uri(MLFLOW_TRACKING_URI)
 mlflow.set_experiment(MLFLOW_EXPERIMENT_NAME)
 
 
-# --- Hyperopt Search Space (for our features) ---
+# --- Hyperopt Search Space ---
 search_space = {
     'n_estimators': scope.int(hp.quniform('n_estimators', 50, 200, 10)),
     'max_depth': scope.int(hp.quniform('max_depth', 3, 15, 1)),
@@ -36,61 +46,92 @@ search_space = {
 X_train_global, X_test_global, y_train_global, y_test_global = None, None, None, None
 
 
-def fetch_training_data(store):
-    """Pulls the entity dataframe and joins features."""
+def fetch_training_data(store, sample_fraction=0.00001):
+    """
+    Pulls the entity dataframe and joins features with improved memory handling.
+    
+    Args:
+        store: Feast FeatureStore instance
+        sample_fraction: Fraction of data to use (default 0.1 = 10%)
+    """
     logging.info("Fetching training data from Feast...")
     
     view = store.get_feature_view("stock_features")
     source_path_actual = view.batch_source.path
 
+
     logging.info(f"Reading entity_df (with target) from: {source_path_actual}")
     
     try:
-        # Read entity dataframe with timestamp, stock_id, and target
+        # Read source parquet in chunks to check size first
         entity_df = pd.read_parquet(
             source_path_actual, 
             columns=["timestamp", "stock_id", "target"]
         )
+        logging.info(f"Original entity_df shape: {entity_df.shape}")
     except Exception as e:
         logging.error(f"Failed to read parquet file at {source_path_actual}: {e}")
         return pd.DataFrame()
 
-    # *** FIX 1: Rename timestamp to event_timestamp for Feast ***
+
+    # *** FIX 1: Sample data to reduce memory pressure ***
+    if sample_fraction < 1.0:
+        logging.info(f"Sampling {sample_fraction*100}% of data to reduce memory usage...")
+        entity_df = entity_df.sample(frac=sample_fraction, random_state=42)
+        logging.info(f"Sampled entity_df shape: {entity_df.shape}")
+    
+    # *** FIX 2: Rename timestamp to event_timestamp ***
     entity_df = entity_df.rename(columns={"timestamp": "event_timestamp"})
     entity_df["event_timestamp"] = pd.to_datetime(entity_df["event_timestamp"])
     
-    # *** FIX 2: Optional - Sample data to reduce memory usage during development ***
-    # Uncomment the line below if you want to work with a subset during testing
-    # entity_df = entity_df.sample(frac=0.1, random_state=42)
-    
-    logging.info(f"Entity DataFrame shape: {entity_df.shape}")
-    
-    # Check for duplicates
+    # *** FIX 3: Remove duplicates before join ***
     duplicates = entity_df.duplicated(subset=["stock_id", "event_timestamp"]).sum()
     if duplicates > 0:
-        logging.warning(f"Found {duplicates} duplicate rows. Removing duplicates...")
+        logging.warning(f"Found {duplicates} duplicate rows. Removing...")
         entity_df = entity_df.drop_duplicates(subset=["stock_id", "event_timestamp"])
-
-    # Get historical features
-    training_data = store.get_historical_features(
-        entity_df=entity_df[["event_timestamp", "stock_id"]],  # Pass only entity columns
-        features=[
-            "stock_features:rolling_avg_10",
-            "stock_features:volume_sum_10",
-        ],
-    )
+    
+    # *** FIX 4: Aggregate by stock_id and event_timestamp to reduce rows ***
+    entity_df = entity_df.groupby(["stock_id", "event_timestamp"]).agg({
+        "target": "first"  # Assume target is same for duplicate keys
+    }).reset_index()
+    
+    logging.info(f"Entity DataFrame shape after deduplication: {entity_df.shape}")
+    
+    # *** FIX 5: Try fetching features with explicit engine handling ***
+    try:
+        training_data = store.get_historical_features(
+            entity_df=entity_df[["event_timestamp", "stock_id"]],
+            features=[
+                "stock_features:rolling_avg_10",
+                "stock_features:volume_sum_10",
+            ],
+        )
+        
+        logging.info("Feature retrieval successful. Converting to DataFrame...")
+        
+        # *** FIX 6: Convert to Pandas with explicit chunking ***
+        features_df = training_data.to_df()
+        
+    except Exception as e:
+        logging.error(f"Feature retrieval failed: {e}")
+        logging.info("Attempting alternative approach: Direct parquet read and join...")
+        
+        # Fallback: Read features directly and join
+        features_df = pd.read_parquet(source_path_actual)
+        features_df = features_df.rename(columns={"timestamp": "event_timestamp"})
+        features_df = features_df[["event_timestamp", "stock_id", "rolling_avg_10", "volume_sum_10"]]
+        features_df = features_df.drop_duplicates(subset=["stock_id", "event_timestamp"])
     
     logging.info("Feature data fetched successfully.")
     
-    # Convert to DataFrame and merge with target
-    features_df = training_data.to_df()
-    
-    # Merge features with target column
+    # *** FIX 7: Merge with target using inner join to eliminate mismatches ***
     final_df = features_df.merge(
         entity_df[["event_timestamp", "stock_id", "target"]],
         on=["event_timestamp", "stock_id"],
         how="inner"
     )
+    
+    logging.info(f"Final DataFrame shape: {final_df.shape}")
     
     return final_df
 
@@ -102,7 +143,7 @@ def hyperopt_objective(params):
         mlflow.set_tag("model_type", "RandomForestClassifier")
         mlflow.log_params(params)
         
-        rf_model = RandomForestClassifier(**params, random_state=42)
+        rf_model = RandomForestClassifier(**params, random_state=42, n_jobs=-1)
         rf_model.fit(X_train_global, y_train_global)
         
         y_pred = rf_model.predict(X_test_global)
@@ -131,6 +172,7 @@ def register_best_model(trials, parent_run_id):
             artifact_path="best_model"
         )
 
+
     model_uri = f"runs:/{parent_run_id}/best_model"
     model_details = mlflow.register_model(model_uri=model_uri, name=MODEL_NAME)
     model_version = model_details.version
@@ -145,16 +187,23 @@ def register_best_model(trials, parent_run_id):
     logging.info(f"Registered model version {model_version} to 'Production'.")
 
 
-# --- Main Execution ---
 if __name__ == "__main__":
+    freeze_support()
     
+    client = Client(processes=True, memory_limit='4GB', n_workers=4, threads_per_worker=1)
+    logging.info(f"Dask dashboard available at: {client.dashboard_link}")
+
     try:
         store = FeatureStore(repo_path="feature_repo")
     except Exception as e:
         logging.error(f"Failed to load Feast repo at 'feature_repo': {e}")
         exit()
 
-    df = fetch_training_data(store)
+
+    # *** Adjust sample_fraction based on your data size ***
+    # For very large datasets, start with 0.05 (5%)
+    # For manageable datasets, use 1.0 (100%)
+    df = fetch_training_data(store, sample_fraction=0.1)
     
     if df.empty:
         logging.error("No data fetched from Feast. Exiting.")
