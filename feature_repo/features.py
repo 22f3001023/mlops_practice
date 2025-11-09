@@ -1,3 +1,4 @@
+import os
 from datetime import timedelta
 from feast import (
     Entity,
@@ -6,35 +7,42 @@ from feast import (
     FileSource,
     ValueType,
 )
-from feast.types import Float64, Int64
+from feast.types import Float64, Int64, String
+
 
 # --- Data Source ---
-# Point Feast to our processed Parquet file.
+PROCESSED_DATA_PATH = os.path.abspath(os.path.join(
+    os.path.dirname(__file__),
+    "..",
+    "data/processed/stock_data.parquet"
+))
+
+
 processed_stock_data = FileSource(
-    path="../data/processed/stock_data.parquet",  # Note the ../ to go up one level
+    path=PROCESSED_DATA_PATH,
     timestamp_field="timestamp",
 )
 
+
 # --- Entity ---
-# An entity is the primary key used to look up features.
 stock_entity = Entity(
     name="stock_id", 
     value_type=ValueType.STRING, 
     description="Stock ticker symbol"
 )
 
+
 # --- Feature View ---
-# Defines the features we want to serve.
 stock_features_view = FeatureView(
     name="stock_features",
     entities=[stock_entity],
-    ttl=timedelta(days=7),  # How long features are valid (7 days)
+    ttl=timedelta(days=7),
     schema=[
         Field(name="rolling_avg_10", dtype=Float64),
         Field(name="volume_sum_10", dtype=Float64),
-        Field(name="target", dtype=Int64), # Include target for training data
+        # Target is NOT included in the feature schema
     ],
-    online=True,  # We are only using this for offline training
+    online=False,
     source=processed_stock_data,
     tags={"project": "stock_predictor"},
 )
