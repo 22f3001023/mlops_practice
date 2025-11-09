@@ -1,0 +1,56 @@
+name: Continuous Integration Pipeline
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+jobs:
+  ci-pipeline:
+    runs-on: ubuntu-latest
+    
+    # Needed for DVC, MLflow, and Git to push tags/commits/artifacts
+    permissions:
+      contents: write 
+      packages: write
+      
+    steps:
+    - name: Checkout Repository
+      uses: actions/checkout@v4
+      with:
+        # Fetch full history for DVC and Git tagging/CML
+        fetch-depth: 0 
+        token: ${{ secrets.GITHUB_TOKEN }}
+
+    - name: Set up Python 3.10
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.10'
+
+    - name: Install System Dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y gcc g++ make
+
+    - name: Install Python Dependencies
+      run: |
+        pip install --upgrade pip
+        pip install -r requirements.txt
+        
+    - name: Configure GCP Credentials
+      # The Service Account JSON Key is stored securely as a GitHub Secret
+      run: |
+        # Write the GCP SA Key to the expected location for DVC/gcsfs
+        mkdir -p .secrets
+        echo '${{ secrets.GCP_SA_KEY }}' > .secrets/gcp_credentials.json
+        
+        # Authenticate gcloud for the CI environment
+        gcloud auth activate-service-account --key-file=.secrets/gcp_credentials.json
+        
+        # Ensure mlflow.db exists, as DVC repro stage depends on it
+        touch mlflow.db
+
+    - name: Run Full MLOps Pipeline
+      # Execute the run_pipeline.sh script created in Step 6
+      run: ./run_pipeline.sh

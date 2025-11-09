@@ -13,14 +13,23 @@ stages:
     deps:
       - feature_repo/features.py
       - feature_repo/feature_store.yaml
+      - data/processed/stock_data.parquet # Make sure data exists before applying
     outs:
-      - feature_repo/data/registry.db  # Track the registry as an output
+      - feature_repo/data/registry.db
+
+  materialize_features:
+    cmd: (cd feature_repo && python materialize.py) && touch feature_repo/data/.materialized
+    deps:
+      - feature_repo/materialize.py
+      - data/processed/stock_data.parquet # Depends on processed data
+      - feature_repo/data/registry.db    # Depends on feast apply
+    outs:
+      - feature_repo/data/.materialized  # A dummy file to track success
 
   train:
     cmd: python scripts/train.py
     deps:
       - scripts/train.py
-      - data/processed/stock_data.parquet
-      - feature_repo/data/registry.db
+      - feature_repo/data/.materialized # Depends on materialization
     outs:
-      - mlflow.db  # Track the mlflow database as an output
+      - mlflow.db
